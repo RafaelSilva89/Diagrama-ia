@@ -1,0 +1,481 @@
+{% extends 'base_app.html' %}
+{% load static %}
+
+{% block page_content %}
+<div class="flex-1 overflow-y-auto">
+    <div class="max-w-6xl mx-auto px-6 py-8">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <h1 class="text-2xl font-semibold text-gray-900 tracking-tight">Analise do Diagrama</h1>
+                <p class="mt-1 text-sm text-gray-500">
+                    Arquivo: <span class="font-medium text-gray-900">{% if diagrama %}{{ diagrama.arquivo.name|cut:"diagramas/" }}{% else %}--{% endif %}</span>
+                </p>
+            </div>
+            <div class="flex gap-3">
+                {% if not analise %}
+                <form method="POST" action="{% url 'processar_analise' diagrama.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="bg-indigo-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-500 transition cursor-pointer">
+                        Analisar Diagrama
+                    </button>
+                </form>
+                {% endif %}
+                <a href="{% url 'projeto' diagrama.projeto.id %}" class="border border-gray-200 text-gray-700 px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition">
+                    Voltar
+                </a>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        {% if messages %}
+            {% for message in messages %}
+                <div class="mb-6 rounded-lg p-4 text-sm {% if message.tags == 'success' %}bg-emerald-50 text-emerald-800 border border-emerald-200{% elif message.tags == 'error' %}bg-red-50 text-red-800 border border-red-200{% else %}bg-gray-50 text-gray-800 border border-gray-200{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <!-- Risk Index -->
+        <div class="mb-8">
+            <div class="bg-gray-50 rounded-xl border border-gray-100 p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-base font-semibold text-gray-900">Indice de Risco Geral</h2>
+                        <p class="mt-1 text-sm text-gray-500">Avaliacao geral do diagrama</p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="text-center">
+                            <div class="text-4xl font-bold text-gray-900">{% if analise %}{{ analise.indice_risco }}{% else %}0{% endif %}</div>
+                            <div class="text-xs text-gray-400">/ 100</div>
+                        </div>
+                        <span class="px-4 py-2 rounded-full text-sm font-medium
+                            {% if analise %}
+                                {% if analise.classificacao == 'Baixo' %}bg-green-100 text-green-800
+                                {% elif analise.classificacao == 'Medio' %}bg-yellow-100 text-yellow-800
+                                {% elif analise.classificacao == 'Alto' %}bg-orange-100 text-orange-800
+                                {% else %}bg-red-100 text-red-800
+                                {% endif %}
+                            {% else %}bg-gray-100 text-gray-500{% endif %}">
+                            {% if analise %}{{ analise.classificacao }}{% else %}--{% endif %}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Antes e Depois -->
+        {% if analise %}
+        <div class="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-gray-50 rounded-xl border border-gray-100 p-6">
+                <h3 class="text-sm font-semibold text-gray-900 mb-4">Antes (Original)</h3>
+                <img src="{{ diagrama.arquivo.url }}" alt="Diagrama Original" class="w-full rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition" onclick="abrirModal(this.src)" />
+            </div>
+            {% if analise.imagem_infografico %}
+            <div class="bg-gray-50 rounded-xl border border-gray-100 p-6">
+                <h3 class="text-sm font-semibold text-gray-900 mb-4">Depois (Sugestoes)</h3>
+                <img src="{{ analise.imagem_infografico.url }}" alt="Infografico Gerado" class="w-full rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition" onclick="abrirModal(this.src)" />
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Analysis Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Left Column -->
+            <div class="space-y-6">
+                <!-- Coherence Errors -->
+                <div class="bg-gray-50 rounded-xl border border-gray-100 p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-semibold text-gray-900">Erros de Coerencia & Lacunas no Diagrama</h3>
+                        <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                            {% if analise %}{{ analise.erros_coerencia|length }}{% else %}0{% endif %} pontos
+                        </span>
+                    </div>
+                    <div class="space-y-2">
+                        {% if analise and analise.erros_coerencia %}
+                            {% for erro in analise.erros_coerencia %}
+                                <div class="bg-white border border-gray-200 rounded-lg p-3">
+                                    <p class="text-sm font-semibold text-gray-900">{{ erro.titulo|default:erro.texto|default:erro }}</p>
+                                    {% if erro.fundamentacao %}
+                                        <p class="mt-1 text-sm text-gray-600">{{ erro.fundamentacao }}</p>
+                                    {% endif %}
+                                    {% if erro.fontes %}
+                                    <div class="mt-2">
+                                        <button onclick="toggleFontes(this)" class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer transition">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            Fontes ({{ erro.fontes|length }})
+                                        </button>
+                                        <div class="fontes-dropdown hidden mt-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 space-y-1">
+                                            {% for fonte in erro.fontes %}
+                                            <p class="text-xs text-gray-600">
+                                                <span class="font-medium text-gray-700">{{ fonte.filename }}</span>{% if fonte.page_number %}<span class="text-gray-400"> | Pagina {{ fonte.page_number }}</span>{% endif %}
+                                            </p>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% elif analise.fontes_rag.erros_coerencia %}
+                                    <div class="mt-2">
+                                        <button onclick="toggleFontes(this)" class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer transition">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            Fontes ({{ analise.fontes_rag.erros_coerencia|length }})
+                                        </button>
+                                        <div class="fontes-dropdown hidden mt-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 space-y-1">
+                                            {% for fonte in analise.fontes_rag.erros_coerencia %}
+                                            <p class="text-xs text-gray-600">
+                                                <span class="font-medium text-gray-700">{{ fonte.filename }}</span>{% if fonte.page_number %}<span class="text-gray-400"> | Pagina {{ fonte.page_number }}</span>{% endif %}
+                                            </p>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="bg-white border border-gray-200 rounded-lg p-3">
+                                <p class="text-sm text-gray-400 italic">Nenhum erro identificado. Clique em "Analisar Diagrama" para iniciar.</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="mt-4 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                        <p class="text-xs text-indigo-700">
+                            <span class="font-semibold">Sugestao:</span> Verifique fluxos desconectados, dependencias circulares e componentes orfaos.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Structure Issues -->
+                <div class="bg-gray-50 rounded-xl border border-gray-100 p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-semibold text-gray-900">Problemas de Estrutura do Diagrama</h3>
+                        <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {% if analise %}{{ analise.problemas_estrutura|length }}{% else %}0{% endif %} ajustes
+                        </span>
+                    </div>
+                    <div class="space-y-2">
+                        {% if analise and analise.problemas_estrutura %}
+                            {% for problema in analise.problemas_estrutura %}
+                                <div class="bg-white border border-gray-200 rounded-lg p-3">
+                                    <p class="text-sm font-semibold text-gray-900">{{ problema.titulo|default:problema.texto|default:problema }}</p>
+                                    {% if problema.fundamentacao %}
+                                        <p class="mt-1 text-sm text-gray-600">{{ problema.fundamentacao }}</p>
+                                    {% endif %}
+                                    {% if problema.fontes %}
+                                    <div class="mt-2">
+                                        <button onclick="toggleFontes(this)" class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer transition">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            Fontes ({{ problema.fontes|length }})
+                                        </button>
+                                        <div class="fontes-dropdown hidden mt-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 space-y-1">
+                                            {% for fonte in problema.fontes %}
+                                            <p class="text-xs text-gray-600">
+                                                <span class="font-medium text-gray-700">{{ fonte.filename }}</span>{% if fonte.page_number %}<span class="text-gray-400"> | Pagina {{ fonte.page_number }}</span>{% endif %}
+                                            </p>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% elif analise.fontes_rag.problemas_estrutura %}
+                                    <div class="mt-2">
+                                        <button onclick="toggleFontes(this)" class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer transition">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            Fontes ({{ analise.fontes_rag.problemas_estrutura|length }})
+                                        </button>
+                                        <div class="fontes-dropdown hidden mt-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 space-y-1">
+                                            {% for fonte in analise.fontes_rag.problemas_estrutura %}
+                                            <p class="text-xs text-gray-600">
+                                                <span class="font-medium text-gray-700">{{ fonte.filename }}</span>{% if fonte.page_number %}<span class="text-gray-400"> | Pagina {{ fonte.page_number }}</span>{% endif %}
+                                            </p>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="bg-white border border-gray-200 rounded-lg p-3">
+                                <p class="text-sm text-gray-400 italic">Nenhum problema identificado. Clique em "Analisar Diagrama" para iniciar.</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="mt-4 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                        <p class="text-xs text-indigo-700">
+                            <span class="font-semibold">Sugestao:</span> Revise a notacao, adicione legendas e nomeie componentes de forma clara.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div class="space-y-6">
+                <!-- Design Risks -->
+                <div class="bg-gray-50 rounded-xl border border-gray-100 p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-semibold text-gray-900">Riscos de Design Identificados</h3>
+                        <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            {% if analise %}{{ analise.riscos_identificados|length }}{% else %}0{% endif %} riscos
+                        </span>
+                    </div>
+                    <div class="space-y-2">
+                        {% if analise and analise.riscos_identificados %}
+                            {% for risco in analise.riscos_identificados %}
+                                <div class="bg-white border border-gray-200 rounded-lg p-3">
+                                    <p class="text-sm font-semibold text-gray-900">{{ risco.titulo|default:risco.texto|default:risco }}</p>
+                                    {% if risco.fundamentacao %}
+                                        <p class="mt-1 text-sm text-gray-600">{{ risco.fundamentacao }}</p>
+                                    {% endif %}
+                                    {% if risco.fontes %}
+                                    <div class="mt-2">
+                                        <button onclick="toggleFontes(this)" class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer transition">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            Fontes ({{ risco.fontes|length }})
+                                        </button>
+                                        <div class="fontes-dropdown hidden mt-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 space-y-1">
+                                            {% for fonte in risco.fontes %}
+                                            <p class="text-xs text-gray-600">
+                                                <span class="font-medium text-gray-700">{{ fonte.filename }}</span>{% if fonte.page_number %}<span class="text-gray-400"> | Pagina {{ fonte.page_number }}</span>{% endif %}
+                                            </p>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% elif analise.fontes_rag.riscos_identificados %}
+                                    <div class="mt-2">
+                                        <button onclick="toggleFontes(this)" class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer transition">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            Fontes ({{ analise.fontes_rag.riscos_identificados|length }})
+                                        </button>
+                                        <div class="fontes-dropdown hidden mt-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 space-y-1">
+                                            {% for fonte in analise.fontes_rag.riscos_identificados %}
+                                            <p class="text-xs text-gray-600">
+                                                <span class="font-medium text-gray-700">{{ fonte.filename }}</span>{% if fonte.page_number %}<span class="text-gray-400"> | Pagina {{ fonte.page_number }}</span>{% endif %}
+                                            </p>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="bg-white border border-gray-200 rounded-lg p-3">
+                                <p class="text-sm text-gray-400 italic">Nenhum risco identificado. Clique em "Analisar Diagrama" para iniciar.</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="mt-4 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                        <p class="text-xs text-indigo-700">
+                            <span class="font-semibold">Sugestao:</span> Reduza acoplamento, elimine pontos unicos de falha e adicione camadas de seguranca.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Red Flags -->
+                <div class="bg-red-50/50 rounded-xl border-2 border-red-200 p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-semibold text-red-900">Red Flags Criticas</h3>
+                        <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-200 text-red-900">
+                            Atencao maxima
+                        </span>
+                    </div>
+                    <div class="space-y-2">
+                        {% if analise and analise.red_flags %}
+                            {% for red_flag in analise.red_flags %}
+                                <div class="border border-red-200 rounded-lg p-3 bg-white">
+                                    <p class="text-sm font-semibold text-gray-900">{{ red_flag.titulo|default:red_flag.texto|default:red_flag }}</p>
+                                    {% if red_flag.fundamentacao %}
+                                        <p class="mt-1 text-sm text-gray-600">{{ red_flag.fundamentacao }}</p>
+                                    {% endif %}
+                                    {% if red_flag.fontes %}
+                                    <div class="mt-2">
+                                        <button onclick="toggleFontes(this)" class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer transition">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            Fontes ({{ red_flag.fontes|length }})
+                                        </button>
+                                        <div class="fontes-dropdown hidden mt-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 space-y-1">
+                                            {% for fonte in red_flag.fontes %}
+                                            <p class="text-xs text-gray-600">
+                                                <span class="font-medium text-gray-700">{{ fonte.filename }}</span>{% if fonte.page_number %}<span class="text-gray-400"> | Pagina {{ fonte.page_number }}</span>{% endif %}
+                                            </p>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% elif analise.fontes_rag.red_flags %}
+                                    <div class="mt-2">
+                                        <button onclick="toggleFontes(this)" class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer transition">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                            </svg>
+                                            Fontes ({{ analise.fontes_rag.red_flags|length }})
+                                        </button>
+                                        <div class="fontes-dropdown hidden mt-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 space-y-1">
+                                            {% for fonte in analise.fontes_rag.red_flags %}
+                                            <p class="text-xs text-gray-600">
+                                                <span class="font-medium text-gray-700">{{ fonte.filename }}</span>{% if fonte.page_number %}<span class="text-gray-400"> | Pagina {{ fonte.page_number }}</span>{% endif %}
+                                            </p>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="border border-red-200 rounded-lg p-3 bg-white">
+                                <p class="text-sm text-gray-400 italic">Nenhuma red flag identificada. Clique em "Analisar Diagrama" para iniciar.</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="mt-4 p-3 bg-red-100 rounded-lg border border-red-200">
+                        <p class="text-xs text-red-900">
+                            <span class="font-semibold">Recomendacao:</span> Corrija violacoes SOLID, anti-patterns e falhas de seguranca antes de implementar.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Document Info -->
+        <div class="mt-6 bg-gray-50 rounded-xl border border-gray-100 p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-900">Informacoes da Analise</h3>
+                    <p class="mt-1 text-xs text-gray-500">
+                        {% if analise %}
+                            Processado em <span class="font-medium">{{ analise.tempo_processamento }}s</span>.
+                            Analise em {{ analise.data_criacao|date:"d/m/Y H:i" }}.
+                        {% else %}
+                            Diagrama ainda nao foi analisado.
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="flex gap-3">
+                    {% if analise %}
+                    <form method="POST" action="{% url 'processar_analise' diagrama.id %}">
+                        {% csrf_token %}
+                        <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-500 transition cursor-pointer">
+                            Reanalisar
+                        </button>
+                    </form>
+                    <a href="{% url 'exportar_pdf' diagrama.id %}"
+                       class="border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition cursor-pointer">
+                        Salvar PDF
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Disclaimer -->
+        <div class="mt-4 p-3 text-center">
+            <p class="text-xs text-gray-400">Esta analise e automatica e complementar a revisao humana do arquiteto de software.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Image Modal -->
+<div id="image-modal" class="hidden fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-40 flex items-center justify-center" onclick="fecharModal(event)">
+    <button onclick="fecharModal(event, true)" class="absolute top-6 right-6 text-white hover:text-gray-300 transition cursor-pointer">
+        <svg class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+    </button>
+    <img id="modal-image" src="" alt="Visualizacao ampliada" class="max-w-5xl max-h-[90vh] object-contain rounded-lg shadow-2xl" onclick="event.stopPropagation()" />
+</div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="hidden fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 text-center">
+        <div class="mb-5">
+            <svg class="animate-spin h-10 w-10 text-indigo-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+        </div>
+        <h3 class="text-lg font-semibold text-gray-900 mb-2">Analisando diagrama...</h3>
+        <p class="text-sm text-gray-500 mb-5">A IA esta processando o diagrama com enriquecimento RAG. Isso pode levar alguns segundos.</p>
+        <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+            <div id="loading-bar" class="bg-indigo-600 h-2 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
+        </div>
+        <p id="loading-status" class="mt-3 text-xs text-gray-400">Iniciando analise...</p>
+    </div>
+</div>
+{% endblock page_content %}
+
+{% block 'page_scripts' %}
+<script>
+    function abrirModal(src) {
+        var modal = document.getElementById('image-modal');
+        var img = document.getElementById('modal-image');
+        img.src = src;
+        modal.classList.remove('hidden');
+    }
+
+    function fecharModal(event, forceClose) {
+        if (forceClose || event.target === document.getElementById('image-modal')) {
+            document.getElementById('image-modal').classList.add('hidden');
+        }
+    }
+
+    function toggleFontes(btn) {
+        var dropdown = btn.nextElementSibling;
+        if (dropdown && dropdown.classList.contains('fontes-dropdown')) {
+            dropdown.classList.toggle('hidden');
+            // Atualizar texto do botao
+            if (dropdown.classList.contains('hidden')) {
+                btn.querySelector('svg').style.transform = '';
+            } else {
+                btn.querySelector('svg').style.transform = 'rotate(180deg)';
+            }
+        }
+    }
+
+    (function() {
+        const overlay = document.getElementById('loading-overlay');
+        const bar = document.getElementById('loading-bar');
+        const status = document.getElementById('loading-status');
+
+        const etapas = [
+            { pct: 10, texto: 'Lendo diagrama...', delay: 800 },
+            { pct: 25, texto: 'Analisando coerencia e fluxos...', delay: 2500 },
+            { pct: 40, texto: 'Identificando riscos de design...', delay: 4500 },
+            { pct: 50, texto: 'Verificando estrutura e notacao...', delay: 7000 },
+            { pct: 60, texto: 'Detectando red flags criticas...', delay: 10000 },
+            { pct: 70, texto: 'Enriquecendo analise com RAG...', delay: 14000 },
+            { pct: 80, texto: 'Buscando definicoes e conceitos...', delay: 20000 },
+            { pct: 85, texto: 'Gerando infografico com IA...', delay: 28000 },
+            { pct: 92, texto: 'Validando campos da analise...', delay: 36000 },
+            { pct: 97, texto: 'Finalizando...', delay: 42000 },
+        ];
+
+        function mostrarLoading() {
+            overlay.classList.remove('hidden');
+            bar.style.width = '5%';
+            status.textContent = 'Iniciando analise...';
+
+            etapas.forEach(function(etapa) {
+                setTimeout(function() {
+                    bar.style.width = etapa.pct + '%';
+                    status.textContent = etapa.texto;
+                }, etapa.delay);
+            });
+        }
+
+        document.querySelectorAll('form[action*="processar_analise"]').forEach(function(form) {
+            form.addEventListener('submit', function() {
+                mostrarLoading();
+            });
+        });
+    })();
+</script>
+{% endblock 'page_scripts' %}
