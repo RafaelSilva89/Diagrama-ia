@@ -1,13 +1,12 @@
 import os
 import io
 import time
+import json
 
-from django.shortcuts import render, get_object_or_404, redirect
-from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from django.contrib.messages import constants
+from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import get_object_or_404
+from django.http import JsonResponse, FileResponse
 from django.conf import settings
-from django.http import FileResponse
 from usuarios.models import Diagrama
 from .models import AnaliseDiagrama
 from .agent_langchain import DiagramaAI
@@ -16,18 +15,7 @@ from .consultar_banco_vetorial import consultar_rag
 
 
 def _enriquecer_com_rag(items: list, categoria: str) -> tuple:
-    """Enriquece uma lista de itens da analise com informacoes do RAG.
-
-    Para cada campo, faz uma unica consulta RAG com todos os itens concatenados
-    para otimizar chamadas. Retorna a lista enriquecida e as fontes.
-
-    Args:
-        items: Lista de strings da analise original
-        categoria: Nome da categoria (ex: "erros de coerencia")
-
-    Returns:
-        tuple: (items_enriquecidos: list[dict], fontes: list[dict])
-    """
+    """Enriquece uma lista de itens da analise com informacoes do RAG."""
     if not items:
         return [], []
 
@@ -60,24 +48,55 @@ def _enriquecer_com_rag(items: list, categoria: str) -> tuple:
     return items_enriquecidos, todas_fontes
 
 
-@login_required
+@csrf_exempt
 def analise_diagrama(request, id):
-    diagrama = get_object_or_404(Diagrama, id=id)
+    try:
+        diagrama = Diagrama.objects.get(id=id)
+    except Diagrama.DoesNotExist:
+        return JsonResponse({'message': 'Diagrama não encontrado.'}, status=404)
+
     analise = AnaliseDiagrama.objects.filter(diagrama=diagrama).first()
-    return render(request, 'analise_diagrama.html', {
-        'diagrama': diagrama,
-        'analise': analise,
-    })
+    
+    if request.method == 'GET':
+        dados_analise = None
+        if analise:
+            dados_analise = {
+                'id': analise.id,
+                'indice_risco': analise.indice_risco,
+                'classificacao': analise.classificacao,
+                'erros_coerencia': analise.erros_coerencia,
+                'riscos_identificados': analise.riscos_identificados,
+                'problemas_estrutura': analise.problemas_estrutura,
+                'red_flags': analise.red_flags,
+                'fontes_rag': analise.fontes_rag,
+                'tempo_processamento': analise.tempo_processamento,
+                'data_criacao': analise.data_criacao.strftime('%Y-%m-%dT%H:%M:%S'),
+                'imagem_infografico': str(analise.imagem_infografico) if analise.imagem_infografico else None
+            }
+        
+        return JsonResponse({
+            'diagrama': {
+                'id': diagrama.id,
+                'arquivo': diagrama.arquivo.name,
+                'projeto_id': diagrama.projeto.id
+            },
+            'analise': dados_analise
+        }, status=200)
+
+    return JsonResponse({'message': 'Método não permitido.'}, status=405)
 
 
-@login_required
+@csrf_exempt
 def processar_analise(request, id):
     if request.method != 'POST':
-        messages.add_message(request, constants.ERROR, 'Metodo nao permitido.')
-        return redirect('analise_diagrama', id=id)
+        return JsonResponse({'message': 'Método não permitido.'}, status=405)
 
     try:
-        diagrama = get_object_or_404(Diagrama, id=id)
+        diagrama = Diagrama.objects.get(id=id)
+    except Diagrama.DoesNotExist:
+        return JsonResponse({'message': 'Diagrama não encontrado.'}, status=404)
+
+    try:
         start_time = time.time()
 
         agent = DiagramaAI()
@@ -147,6 +166,8 @@ def processar_analise(request, id):
         )
 
         # Gerar infografico com Gemini
+        infografico_gerado = False
+        erro_infografico = None
         try:
             relatorios_dir = os.path.join(settings.MEDIA_ROOT, 'relatorios')
             os.makedirs(relatorios_dir, exist_ok=True)
@@ -164,34 +185,48 @@ def processar_analise(request, id):
             if resultado:
                 analise.imagem_infografico = f'relatorios/infografico_{diagrama.id}.png'
                 analise.save()
+                infografico_gerado = True
             else:
-                messages.add_message(request, constants.WARNING,
-                                     'Analise concluida, mas o infografico nao pode ser gerado.')
-        except Exception:
-            messages.add_message(request, constants.WARNING,
-                                 'Analise concluida, mas houve um erro ao gerar o infografico.')
+                erro_infografico = 'Nenhum resultado obtido na geração do infográfico.'
+        except Exception as e:
+            erro_infografico = str(e)
 
-        if created:
-            messages.add_message(request, constants.SUCCESS, 'Analise realizada e salva com sucesso!')
-        else:
-            messages.add_message(request, constants.SUCCESS, 'Analise atualizada com sucesso!')
-
-        return redirect('analise_diagrama', id=id)
+        return JsonResponse({
+            'message': 'Análise realizada e salva com sucesso!' if created else 'Análise atualizada com sucesso!',
+            'analise': {
+                'id': analise.id,
+                'indice_risco': analise.indice_risco,
+                'classificacao': analise.classificacao,
+                'tempo_processamento': analise.tempo_processamento,
+                'infografico_gerado': infografico_gerado,
+                'erro_infografico': erro_infografico
+            }
+        }, status=201 if created else 200)
     except Exception as e:
-        messages.add_message(request, constants.ERROR, f'Erro ao processar analise: {str(e)}')
-        return redirect('analise_diagrama', id=id)
+        return JsonResponse({'message': f'Erro ao processar análise: {str(e)}'}, status=500)
 
 
-@login_required
+@csrf_exempt
 def exportar_pdf(request, id):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.colors import HexColor
     from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+    
+    # Check method
+    if request.method != 'GET':
+        return JsonResponse({'message': 'Método não permitido.'}, status=405)
 
-    diagrama = get_object_or_404(Diagrama, id=id)
-    analise = get_object_or_404(AnaliseDiagrama, diagrama=diagrama)
+    try:
+        diagrama = Diagrama.objects.get(id=id)
+    except Diagrama.DoesNotExist:
+        return JsonResponse({'message': 'Diagrama não encontrado.'}, status=404)
+        
+    try:
+        analise = AnaliseDiagrama.objects.get(diagrama=diagrama)
+    except AnaliseDiagrama.DoesNotExist:
+        return JsonResponse({'message': 'Análise não encontrada.'}, status=404)
 
     # Salvar em media/relatorios/
     relatorios_dir = os.path.join(settings.MEDIA_ROOT, 'relatorios')
@@ -284,14 +319,12 @@ def exportar_pdf(request, id):
         elements.append(Paragraph(f'{title} ({len(items)})', heading_style))
         if items:
             for item in items:
-                # Suporta formato novo (dict com texto/fontes) e antigo (string)
                 if isinstance(item, dict):
                     titulo = item.get("titulo", item.get("texto", str(item)))
                     elements.append(Paragraph(f'<b>&bull; {titulo}</b>', body_style))
                     fundamentacao = item.get("fundamentacao", "")
                     if fundamentacao:
                         elements.append(Paragraph(f'    {fundamentacao}', body_style))
-                    # Adicionar fontes no PDF
                     fontes = item.get("fontes", [])
                     for fonte in fontes:
                         filename = fonte.get("filename", "")
