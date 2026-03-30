@@ -4,12 +4,17 @@ Neste documento, explicaremos como a plataforma se comporta na arquitetura de mi
 
 ---
 
-## 1. O Papel dos Participantes (Componentes)
+## 1. A Arquitetura: Os 3 Componentes Principais (e Armazenamento)
 
-*   **Front-End / TELA:** Aplicação React/Vue etc., onde o usuário interage visualmente.
-*   **API Gateway:** Ponto único de entrada. Todas as requisições passam por ele. Ele valida o token de acesso e encaminha a requisição com a identidade do usuário (Header `X-User-Id`).
-*   **Microserviço Django (Este projeto):** Responsável por gerir os metadados dos Projetos, Links das Imagens dos Diagramas, e pelo processamento da Inteligência Artificial (LangChain + RAG).
-*   **Armazenamento (S3/Media):** Local físico onde os binários (imagens e PDFs) são guardados.
+Para que toda a plataforma funcione, a comunicação é dividida nestes blocos independentes:
+
+1.  **API Gateway:** O "porteiro" e microserviço de entrada. Ele gerencia os logins, tokens JWT e a segurança (Auth), encaminhando a requisição já validada para frente com a identidade do usuário (Ex: repassando um Header `X-User-Id`).
+2.  **Microserviço Django (Este projeto central):** O "cérebro" das regras de negócio. Um único projeto que processa tanto a área do painel de clientes (projetos e diagramas) quanto as análises de risco. Ele confia na permissão do Gateway e executa a inteligência de RAG.
+3.  **Sistemas Auxiliares de Inteligência:** (Ex: OpenAI e/ou um Banco de Vetores externo como Pinecone). São conectados ao Django para gerar fundamentações sem impactar a memória do servidor local.
+
+Além desses atores ativos, temos as superfícies de contato e dados:
+*   **Front-End (Interface Web):** Aplicação visual consumida pelo cliente final.
+*   **Armazenamento de Arquivos Local/Cloud (S3):** Onde os binários (imagens anexadas e relatórios gerados) ficam persistidos para leitura.
 
 ---
 
